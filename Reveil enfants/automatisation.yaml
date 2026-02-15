@@ -1,0 +1,58 @@
+alias: Réveil enfants
+description: >-
+  Modifie les automatisations Hue pour le réveil des enfants en fonction de
+  l’heure de leur premier cours et les désactive durant les vacances
+triggers:
+  - at: "06:00:00"
+    trigger: time
+actions:
+  - repeat:
+      for_each: "{{ ['Jules', 'Jennyfer'] }}"
+      sequence:
+        - variables:
+            automation_name: Réveil {{ repeat.item }} école
+            alarm: >-
+              {{ states('sensor.pronote_nom_' ~ repeat.item | lower ~
+              '_next_alarm') | as_timestamp(default=none) }}
+            notification: |
+              {{ alarm is none or alarm in ['unknown', 'unavailable', ''] }}
+            reveil: |
+              {% if notification %}
+                {'hour': 7, 'minute': 22}
+              {% else %}
+                {'hour': {{ alarm | timestamp_custom('%H') | int }}, 'minute': {{ alarm | timestamp_custom('%M') | int }}}
+              {% endif %}
+            state: >
+              {% if notification or alarm | timestamp_custom('%Y-%m-%d') ==
+              now().strftime('%Y-%m-%d') %}
+                enabled
+              {% else %}
+                disabled
+              {% endif %}
+        - data:
+            automation_name: "{{ automation_name }}"
+            hour: "{{ reveil.hour }}"
+            minute: "{{ reveil.minute }}"
+            state: "{{ state }}"
+          action: shell_command.hue_set_wakeup
+        - if:
+            - condition: template
+              value_template: "{{ notification }}"
+          then:
+            - data:
+                name: Réveil Hue (utilisation de valeurs par défaut)
+                message: >
+                  Valeurs par défaut utilisées pour "{{ automation_name }}" → {{
+                  reveil.hour }}:{{ reveil.minute }} (state={{ state }}).
+                  Valeurs du paramètre pronote_next_alarm : "{{
+                  states('sensor.pronote_nom_' ~ repeat.item | lower ~
+                  '_next_alarm') }}"
+              action: logbook.log
+            - data:
+                title: ⚠️ Réveil Hue - Fallback activé
+                message: >
+                  ProNote indisponible ou données invalides. Réveil "{{
+                  automation_name }}" programmé à {{ reveil.hour }}:{{
+                  reveil.minute }} (mode sécurisé).
+              action: notify.mobile_app_sm_a123a
+mode: single
